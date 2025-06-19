@@ -591,7 +591,7 @@ def ondns(listener, method, mux, handlers):
 def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
           python, latency_control, latency_buffer_size,
           dns_listener, seed_hosts, auto_hosts, auto_nets, daemon,
-          to_nameserver, add_cmd_delimiter, remote_shell):
+          to_nameserver, add_cmd_delimiter, remote_shell, unresolved_subnets):
 
     helpers.logprefix = 'c : '
     debug1('Starting client with Python version %s'
@@ -753,6 +753,39 @@ def _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
         # set --auto-nets, we might as well wait for the message first, then
         # ignore its contents.
         mux.got_routes = None
+        if unresolved_subnets:
+            unresolved_map = {}
+            for h, c, fp, lp in unresolved_subnets:
+                unresolved_map.setdefault(h, []).append((h, c, fp, lp))
+
+            resolved_entries = []
+
+            def onresolve(hostlist):
+                for line in hostlist.strip().split():
+                    if not line:
+                        continue
+                    name, ip = line.split(b',', 1)
+                    name = name.decode('ascii')
+                    ip = ip.decode('ascii')
+                    for h, c, fp, lp in unresolved_map.get(name, []):
+                        fam = socket.AF_INET6 if ':' in ip else socket.AF_INET
+                        max_cidr = 128 if fam == socket.AF_INET6 else 32
+                        cidr_to_use = max_cidr if c is None else int(c)
+                        resolved_entries.append((fam, ip, cidr_to_use,
+                                                 int(fp or 0),
+                                                 int(lp or fp or 0)))
+                mux.got_host_list = None
+
+            mux.got_host_list = onresolve
+            mux.send(0, ssnet.CMD_HOST_REQ,
+                     '\n'.join(unresolved_map.keys()).encode('ascii'))
+            end = time.time() + 10
+            while mux.got_host_list and time.time() < end:
+                ssnet.runonce(handlers, mux)
+                if latency_control:
+                    mux.check_fullness()
+            fw.auto_nets.extend(resolved_entries)
+
         serverready()
 
     mux.got_routes = onroutes
@@ -810,7 +843,8 @@ def main(listenip_v6, listenip_v4,
          latency_buffer_size, dns, nslist,
          method_name, seed_hosts, auto_hosts, auto_nets,
          subnets_include, subnets_exclude, daemon, to_nameserver, pidfile,
-         user, group, sudo_pythonpath, add_cmd_delimiter, remote_shell, tmark):
+         user, group, sudo_pythonpath, add_cmd_delimiter, remote_shell, tmark,
+         unresolved_subnets):
 
     if not remotename:
         raise Fatal("You must use -r/--remote to specify a remote "
@@ -1159,7 +1193,8 @@ def main(listenip_v6, listenip_v4,
         return _main(tcp_listener, udp_listener, fw, ssh_cmd, remotename,
                      python, latency_control, latency_buffer_size,
                      dns_listener, seed_hosts, auto_hosts, auto_nets,
-                     daemon, to_nameserver, add_cmd_delimiter, remote_shell)
+                     daemon, to_nameserver, add_cmd_delimiter, remote_shell,
+                     unresolved_subnets)
     finally:
         try:
             if daemon:

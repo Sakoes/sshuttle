@@ -8,7 +8,7 @@ import sshuttle.client as client
 import sshuttle.firewall as firewall
 import sshuttle.hostwatch as hostwatch
 import sshuttle.ssyslog as ssyslog
-from sshuttle.options import parser, parse_ipport
+from sshuttle.options import parser, parse_ipport, configure_dns_flag, get_unresolved_subnets
 from sshuttle.helpers import family_ip_tuple, log, Fatal
 from sshuttle.sudoers import sudoers
 from sshuttle.namespace import enter_namespace
@@ -20,6 +20,7 @@ def main():
     else:
         env_args = []
     args = [*env_args, *sys.argv[1:]]
+    configure_dns_flag(args)
 
     opt = parser.parse_args(args)
 
@@ -65,6 +66,8 @@ def main():
             includes = [item for sublist in opt.subnets+opt.subnets_file
                         for item in sublist]
             excludes = [item for sublist in opt.exclude for item in sublist]
+
+            unresolved = get_unresolved_subnets()
 
             if not includes and not opt.auto_nets:
                 parser.error('at least one subnet, subnet file, '
@@ -128,7 +131,8 @@ def main():
                                       opt.sudo_pythonpath,
                                       opt.add_cmd_delimiter,
                                       opt.remote_shell,
-                                      opt.tmark)
+                                      opt.tmark,
+                                      unresolved)
 
             if return_code == 0:
                 log('Normal exit code, exiting...')
