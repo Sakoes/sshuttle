@@ -178,6 +178,14 @@ def test_parse_subnetport_host_with_port(mock_getaddrinfo):
         ])
 
 
+@patch('sshuttle.options.socket.getaddrinfo', side_effect=socket.gaierror)
+def test_parse_subnetport_unresolved_with_dns(mock_getaddrinfo):
+    sshuttle.options.DNS_IN_ARGS = True
+    sshuttle.options.UNRESOLVED_SUBNETS = []
+    assert sshuttle.options.parse_subnetport('no.resolve') == []
+    assert ('no.resolve', None, None, None) in sshuttle.options.UNRESOLVED_SUBNETS
+
+
 def test_parse_namespace():
     valid_namespaces = [
         'my_namespace',

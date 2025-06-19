@@ -3,6 +3,27 @@ import socket
 import sys
 from argparse import ArgumentParser, Action, ArgumentTypeError as Fatal
 
+# When --dns is supplied on the command line, hostnames passed as
+# subnets might only be resolvable on the remote host.  During the
+# argument parsing stage we therefore record such hostnames for later
+# resolution instead of failing immediately.
+DNS_IN_ARGS = False
+UNRESOLVED_SUBNETS = []
+
+
+def configure_dns_flag(args):
+    """Set DNS_IN_ARGS based on parsed command line args list."""
+    global DNS_IN_ARGS
+    DNS_IN_ARGS = "--dns" in args
+
+
+def get_unresolved_subnets():
+    """Return and clear the list of unresolved subnets."""
+    global UNRESOLVED_SUBNETS
+    lst = UNRESOLVED_SUBNETS
+    UNRESOLVED_SUBNETS = []
+    return lst
+
 from sshuttle import __version__
 
 
@@ -54,6 +75,9 @@ def parse_subnetport(s):
     try:
         addrinfo = socket.getaddrinfo(host, 0, 0, socket.SOCK_STREAM)
     except socket.gaierror:
+        if DNS_IN_ARGS:
+            UNRESOLVED_SUBNETS.append((host, cidr, fport, lport))
+            return []
         raise Fatal('Unable to resolve address: %s' % host)
 
     # If the address is a domain with multiple IPs and a mask is also
